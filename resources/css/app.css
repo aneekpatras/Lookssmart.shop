@@ -1,0 +1,307 @@
+@import 'tailwindcss';
+
+/* Class-based dark mode, scoped to the admin dashboard only (Phase 5) — AdminLayout toggles `.dark`
+   on <html> itself and removes it on unmount, so the public site (Brief §6: dark mode optional,
+   Phase 13) is never affected by an admin's preference. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
+@source '../../storage/framework/views/*.php';
+@source '../**/*.blade.php';
+@source '../**/*.tsx';
+@source '../**/*.ts';
+
+/* Brief §6 — minimal luxury: soft neutral base + one warm accent (rose-gold / champagne). */
+@theme {
+    --font-display: 'Fraunces', ui-serif, Georgia, 'Times New Roman', serif;
+    --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
+        'Segoe UI Symbol', 'Noto Color Emoji';
+
+    --color-ivory: #faf7f2;
+    --color-surface: #ffffff;
+    --color-ink: #2a2420;
+    --color-ink-muted: #6b6157;
+    --color-border-soft: #e8e1d6;
+
+    --color-accent-50: #f8f1e2;
+    --color-accent-100: #f0e6d2;
+    --color-accent-300: #ddc08c;
+    --color-accent-500: #c9a66b;
+    --color-accent-600: #b08d4f;
+    --color-accent-700: #8f7140;
+
+    --radius-md: 0.625rem;
+    --radius-lg: 1rem;
+    --radius-xl: 1.5rem;
+
+    --shadow-soft: 0 2px 16px 0 rgb(42 36 32 / 0.06);
+    --shadow-glass: 0 8px 32px 0 rgb(42 36 32 / 0.10);
+
+    --ease-out-soft: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@layer base {
+    body {
+        @apply bg-ivory text-ink font-sans antialiased;
+    }
+
+    h1, h2, h3, h4, h5, h6 {
+        @apply font-display;
+    }
+
+    /* Admin-only dark palette (Phase 5) — redefining the same @theme variables here means every
+       existing `bg-ivory`/`text-ink`/etc. utility flips automatically under a `.dark` ancestor,
+       with no need to sprinkle `dark:` variants through every component. */
+    .dark {
+        --color-ivory: #171310;
+        --color-surface: #211c18;
+        --color-ink: #f3efe8;
+        --color-ink-muted: #a89e92;
+        --color-border-soft: #38312b;
+        --shadow-soft: 0 2px 16px 0 rgb(0 0 0 / 0.35);
+        --shadow-glass: 0 8px 32px 0 rgb(0 0 0 / 0.45);
+    }
+}
+
+@layer utilities {
+    /* Glassmorphism — reserved for the floating nav, booking summary card, and modals only (Brief §6). */
+    .glass {
+        @apply border border-white/40 bg-white/60 shadow-glass backdrop-blur-md;
+    }
+
+    /* Motion-safe helpers: pair with Framer Motion's `useReducedMotion()` in JS; this is the CSS-only backstop. */
+    .motion-safe-transition {
+        transition-timing-function: var(--ease-out-soft);
+    }
+}
+
+/*
+ * Bridal gallery marquee.
+ *
+ * Implemented entirely in CSS, on purpose: this app's CSP is `style-src 'self' 'nonce-…'` with no
+ * `unsafe-inline`, and inline styles are already being blocked on public pages (§10 #39). A
+ * JS-driven transform or an inline `--duration` custom property would therefore be at risk of
+ * silently not applying, so the animation lives in the stylesheet and everything dynamic is driven
+ * by plain DATA ATTRIBUTES, which CSP does not police.
+ *
+ * The track holds the image list twice; translating exactly -50% lands the duplicate precisely
+ * where the original started, so the loop is seamless with no snap-back frame.
+ */
+@keyframes marquee-scroll {
+    from {
+        transform: translateX(0);
+    }
+    to {
+        transform: translateX(-50%);
+    }
+}
+
+/* Reusable scrollbar-hiding utility for any horizontally-scrollable strip (category pill rows,
+   the bridal marquee below) — same technique, extracted so it isn't reimplemented per component. */
+.no-scrollbar {
+    scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+    display: none;
+}
+
+.marquee-viewport {
+    /* Horizontal drag/swipe falls out of native overflow scrolling — no JS gesture handling, which
+       also means it behaves correctly with a trackpad, a mouse wheel and assistive tech. */
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    touch-action: pan-x pan-y;
+    scrollbar-width: none;
+}
+
+.marquee-viewport::-webkit-scrollbar {
+    display: none;
+}
+
+.marquee-track {
+    animation: marquee-scroll var(--marquee-duration, 30s) linear infinite;
+    width: max-content;
+}
+
+/* Pause on hover (spec), and while the viewer is actively dragging — `data-paused` is toggled in
+   React so a drag does not fight the animation. */
+.marquee-viewport:hover .marquee-track,
+.marquee-viewport:focus-within .marquee-track,
+.marquee-track[data-paused='true'] {
+    animation-play-state: paused;
+}
+
+/* Reviews Carousel: a subtle fade+lift applied to the currently-visible page of cards each time
+   React swaps `key` on page change (every 5s, or after a manual pause/resume). A real CSS
+   animation rather than a Tailwind opacity transition, because the OLD page unmounts and the NEW
+   page mounts in the same tick — there is no shared element to transition FROM, so this animates
+   the incoming page in on mount instead. `ReviewsCarousel.tsx` reads
+   `matchMedia('(prefers-reduced-motion: reduce)')` itself (the same pattern `Home.tsx`'s
+   `HeroBackground` already uses) and skips applying this class when it matches — the auto-advance
+   TIMER still runs either way (the content itself must keep rotating), only the visual fade is
+   suppressed, which a CSS-only `@media` override could not express since it can't reach into the
+   JS interval logic. */
+@keyframes reviews-fade-in {
+    from {
+        opacity: 0;
+        transform: translateY(6px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.reviews-fade {
+    animation: reviews-fade-in 0.6s ease-out both;
+}
+
+/* Per-image cadence. `--marquee-duration` = image count x 3s, so each card takes ~3s to traverse
+   regardless of how many the admin has enabled. Enumerated as static rules rather than an inline
+   custom property, for the CSP reason above. Counts beyond this range fall back to the 30s default. */
+.marquee-track[data-count='2'] { --marquee-duration: 6s; }
+.marquee-track[data-count='3'] { --marquee-duration: 9s; }
+.marquee-track[data-count='4'] { --marquee-duration: 12s; }
+.marquee-track[data-count='5'] { --marquee-duration: 15s; }
+.marquee-track[data-count='6'] { --marquee-duration: 18s; }
+.marquee-track[data-count='7'] { --marquee-duration: 21s; }
+.marquee-track[data-count='8'] { --marquee-duration: 24s; }
+.marquee-track[data-count='9'] { --marquee-duration: 27s; }
+.marquee-track[data-count='10'] { --marquee-duration: 30s; }
+.marquee-track[data-count='11'] { --marquee-duration: 33s; }
+.marquee-track[data-count='12'] { --marquee-duration: 36s; }
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+
+    /* The blanket rule above would run the marquee to completion in 0.01ms and leave the track
+       parked at translateX(-50%) — visibly shifted, looking broken. Cancel the animation outright
+       instead and let the viewport be scrolled by hand. */
+    .marquee-track {
+        animation: none !important;
+        transform: none !important;
+    }
+}
+
+/*
+ * Blog article body typography.
+ *
+ * Hand-styled rather than pulled in via @tailwindcss/typography (not installed, and adding a
+ * dependency for one page is more than this needs) — scoped to `.article-body` so it can never
+ * leak into any other `dangerouslySetInnerHTML` block on the site.
+ *
+ * The tag list here is deliberately exactly what HTML Purifier's 'blog' profile allows
+ * (config/purifier.php): h2, h3, h4, p, blockquote, ul, ol, li, strong/b, em/i, a, img, table. No
+ * `class` or `div` survives sanitization, which is why a CTA "callout" in an article is a styled
+ * `blockquote` rather than a custom-classed box — blockquote is the only semantically-callout-shaped
+ * tag actually permitted through.
+ */
+.article-body {
+    color: var(--color-ink);
+    font-size: 1.0625rem;
+    line-height: 1.8;
+}
+
+.article-body > * + * {
+    margin-top: 1.25em;
+}
+
+.article-body h2 {
+    font-family: var(--font-display);
+    font-size: 1.5rem;
+    font-weight: 500;
+    color: var(--color-ink);
+    margin-top: 2em;
+}
+
+.article-body h3 {
+    font-family: var(--font-display);
+    font-size: 1.25rem;
+    font-weight: 500;
+    color: var(--color-ink);
+    margin-top: 1.75em;
+}
+
+.article-body h4 {
+    font-size: 1.0625rem;
+    font-weight: 600;
+    color: var(--color-ink);
+    margin-top: 1.5em;
+}
+
+.article-body p {
+    color: var(--color-ink-muted);
+}
+
+.article-body strong,
+.article-body b {
+    color: var(--color-ink);
+    font-weight: 600;
+}
+
+.article-body ul,
+.article-body ol {
+    color: var(--color-ink-muted);
+    padding-left: 1.375em;
+}
+
+.article-body ul {
+    list-style-type: disc;
+}
+
+.article-body ol {
+    list-style-type: decimal;
+}
+
+.article-body li + li {
+    margin-top: 0.5em;
+}
+
+.article-body a {
+    color: var(--color-accent-700);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.article-body a:hover {
+    color: var(--color-accent-600);
+}
+
+/* The CTA-callout use case: a styled, accent-bordered block rather than a plain indent. */
+.article-body blockquote {
+    border-left: 3px solid var(--color-accent-500);
+    background: var(--color-accent-50);
+    color: var(--color-ink);
+    border-radius: var(--radius-md);
+    padding: 1.25em 1.5em;
+    font-style: normal;
+}
+
+.article-body blockquote p {
+    color: var(--color-ink);
+}
+
+.article-body img {
+    border-radius: var(--radius-lg);
+    width: 100%;
+    height: auto;
+}
+
+.article-body table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9375rem;
+}
+
+.article-body th,
+.article-body td {
+    border: 1px solid var(--color-border-soft);
+    padding: 0.5em 0.75em;
+    text-align: left;
+}

@@ -1,0 +1,64 @@
+# --- Environment & secrets ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# --- PHP / Composer ---
+/vendor/
+composer.phar
+Homestead.json
+Homestead.yaml
+auth.json
+
+# --- Laravel ---
+/bootstrap/cache/*.php
+/storage/*.key
+/storage/app/*
+!/storage/app/public
+!/storage/app/.gitkeep
+/storage/framework/cache/*
+!/storage/framework/cache/.gitkeep
+/storage/framework/sessions/*
+!/storage/framework/sessions/.gitkeep
+/storage/framework/testing/*
+!/storage/framework/testing/.gitkeep
+/storage/framework/views/*
+!/storage/framework/views/.gitkeep
+/storage/logs/*
+!/storage/logs/.gitkeep
+/public/hot
+/public/storage
+/public/build
+/bootstrap/ssr
+
+# --- Node / Vite ---
+/node_modules/
+npm-debug.log*
+yarn-error.log
+/dist/
+
+# --- Testing ---
+/coverage/
+.phpunit.result.cache
+/playwright-report/
+/test-results/
+
+# --- IDE / OS ---
+.idea/
+.vscode/
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# --- Docker / Sail ---
+docker-compose.override.yml
+
+# --- Misc ---
+.phpactor.json
+_ide_helper.php
+_ide_helper_models.php
+.phpstorm.meta.php

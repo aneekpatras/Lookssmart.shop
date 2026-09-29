@@ -1,0 +1,53 @@
+# UNUSED for local development (2026-08-24, see 02-PROJECT-STATE.md Decision #8).
+# This machine's Docker Desktop engine wouldn't start reliably (8GB RAM); local dev runs on native
+# XAMPP (PHP + MariaDB) instead, with `php artisan serve` + `npm run dev` — no containers involved.
+# Kept here only as a future/CI reference (e.g. a teammate with more RAM, or a future containerized
+# staging setup) — not part of the current local workflow. Do not assume it's running.
+name: looks-smart-salon
+
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: "${DB_PASSWORD:-secret}"
+      MYSQL_DATABASE: "${DB_DATABASE:-looks_smart_salon}"
+      MYSQL_USER: "${DB_USERNAME:-looks_smart}"
+      MYSQL_PASSWORD: "${DB_PASSWORD:-secret}"
+      MYSQL_ALLOW_EMPTY_PASSWORD: "no"
+    ports:
+      - "${FORWARD_DB_PORT:-3306}:3306"
+    volumes:
+      - looks-smart-mysql:/var/lib/mysql
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASSWORD:-secret}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "${FORWARD_REDIS_PORT:-6379}:6379"
+    volumes:
+      - looks-smart-redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  mailpit:
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    ports:
+      - "${FORWARD_MAILPIT_PORT:-1025}:1025"
+      - "${FORWARD_MAILPIT_DASHBOARD_PORT:-8025}:8025"
+
+volumes:
+  looks-smart-mysql:
+    driver: local
+  looks-smart-redis:
+    driver: local

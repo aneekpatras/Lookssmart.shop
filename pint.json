@@ -1,0 +1,26 @@
+{
+  "preset": "laravel",
+  "rules": {
+    "declare_strict_types": false,
+    "final_class": false,
+    "no_unused_imports": true,
+    "ordered_imports": {
+      "sort_algorithm": "alpha"
+    },
+    "single_quote": true,
+    "trailing_comma_in_multiline": {
+      "elements": ["arrays", "arguments", "parameters"]
+    },
+    "not_operator_with_successor_space": true,
+    "phpdoc_align": {
+      "align": "left"
+    },
+    "concat_space": {
+      "spacing": "one"
+    },
+    "binary_operator_spaces": {
+      "default": "single_space"
+    }
+  },
+  "exclude": ["bootstrap/cache", "storage", "vendor", "node_modules"]
+}
