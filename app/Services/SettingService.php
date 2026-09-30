@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\Crypt;
  * Phase 10 sub-step 4: single call site for reading/writing grouped admin settings, with transparent
  * encryption for secret fields (API keys, tokens) — never the raw `Setting::get()`/`Setting::create()`
  * calls directly for anything in `SCHEMA` below, so masking and encryption can't be forgotten at a new
- * call site. `Setting`'s own model events (Phase 6) already bust the per-key Redis cache entry on
+ * call site. `Setting`'s own model events (Phase 6) already bust the per-key cache entry on
  * every save/delete, so writing through this service gets that invalidation for free.
  *
  * `SCHEMA` is the allowlist of every key this service will read or write, and its group/type/whether

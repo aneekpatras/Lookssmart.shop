@@ -1,8 +1,9 @@
 # Deployment Guide — Looks Smart Beauty Salon
 
-Production setup for a single Ubuntu/Debian server running Nginx (or Caddy) + PHP-FPM + MySQL 8 +
-Redis 7. Written against what this app actually runs — Laravel 12, Horizon (not a plain `queue:work`
-pool — see the Supervisor section), Inertia v2 SSR — not a generic Laravel checklist. Cross-references
+Production setup for a single Ubuntu/Debian server running Nginx (or Caddy) + PHP-FPM + MySQL 8.
+Written against what this app actually runs — Laravel 12, the `database` queue driver via a cron-driven
+`queue:work --stop-when-empty` (Redis and Horizon were removed from the project 2026-09-30, Decision
+#50 — see `02-PROJECT-STATE.md`), Inertia v2 SSR — not a generic Laravel checklist. Cross-references
 `02-PROJECT-STATE.md` for the real decisions/gaps behind each step; read that file's §9/§9a/§10 before
 going live.
 
@@ -10,11 +11,9 @@ going live.
 
 ## 1. Prerequisites
 
-- PHP 8.2+ with extensions: `pdo_mysql`, `redis` (or use `predis/predis`, which this app already ships
-  with — no `ext-redis` required), `gd` (Intervention Image), `bcmath`, `mbstring`, `xml`, `zip`, `intl`.
-- MySQL 8 (or MariaDB 10.11+) with `utf8mb4`.
-- Redis 7 — this app's cache, session, queue, and booking slot-locks all run on it (Decision #29). Not
-  optional past local dev.
+- PHP 8.2+ with extensions: `pdo_mysql`, `gd` (Intervention Image), `bcmath`, `mbstring`, `xml`, `zip`, `intl`.
+- MySQL 8 (or MariaDB 10.11+) with `utf8mb4`. Cache, session, queue, and booking slot-locks all run on
+  this database via Laravel's `database` driver (Decision #49/#50) — no Redis needed.
 - Node 20+ (build-time only — `npm run build:ssr` produces static assets + an SSR bundle; Node stays
   running afterward only to serve SSR, see §4).
 - Composer 2, with `ext-pcntl`/`ext-posix` actually available (a real Linux server has both — the
@@ -104,31 +103,21 @@ certbot in the Nginx setup, which needs its own renewal timer, usually installed
 
 ## 4. Processes to supervise
 
-This app has **three** long-running processes in production, not the generic Laravel two:
+This app has **two** long-running processes in production, plus a cron-driven queue worker:
 
 | Process | Command | Why |
 |---|---|---|
-| Horizon | `php artisan horizon` | Runs and supervises the actual queue workers itself — **not** a `queue:work` pool. Horizon IS this app's queue worker; do not also run `queue:work` alongside it. |
 | Inertia SSR | `php artisan inertia:start-ssr` | Server-side rendering for the public site (SEO — Phase 13). |
 | PHP-FPM | (usually its own systemd service already) | Serves the actual HTTP requests. |
 
+Queued jobs (notifications, reminders, review requests) run on the `database` queue driver — there is
+no long-running worker daemon to supervise; a cron-driven `queue:work --stop-when-empty` (see the Cron
+section below) drains the queue every minute instead. This is deliberate for the shared-hosting target
+this app actually deploys to (no persistent worker process or Redis available) — if a future environment
+can run a real supervised worker, `php artisan queue:work` under Supervisor is a drop-in upgrade; no
+code changes needed either way, since `QUEUE_CONNECTION=database` is unaffected by how the worker runs.
+
 ### Supervisor config
-
-`/etc/supervisor/conf.d/looks-smart-salon-horizon.conf`:
-```ini
-[program:looks-smart-salon-horizon]
-process_name=%(program_name)s
-command=php /var/www/looks-smart-salon/artisan horizon
-autostart=true
-autorestart=true
-user=www-data
-redirect_stderr=true
-stdout_logfile=/var/www/looks-smart-salon/storage/logs/horizon.log
-stopwaitsecs=3600
-```
-
-`stopwaitsecs=3600` matches Horizon's own documented recommendation — it needs time to let in-flight
-jobs finish before Supervisor sends `SIGKILL`.
 
 `/etc/supervisor/conf.d/looks-smart-salon-ssr.conf`:
 ```ini
@@ -142,17 +131,24 @@ redirect_stderr=true
 stdout_logfile=/var/www/looks-smart-salon/storage/logs/ssr.log
 ```
 
-After adding either file: `supervisorctl reread && supervisorctl update && supervisorctl start looks-smart-salon-horizon looks-smart-salon-ssr`.
+After adding the file: `supervisorctl reread && supervisorctl update && supervisorctl start looks-smart-salon-ssr`.
 
-### Cron (the actual scheduler — drives 7 real scheduled commands)
+### Cron (the actual scheduler — drives 7 real scheduled commands, plus the queue worker)
 
-One line, `crontab -e` as `www-data` (or the deploy user PHP-FPM runs as):
+Two lines, `crontab -e` as `www-data` (or the deploy user PHP-FPM runs as):
 ```
 * * * * * cd /var/www/looks-smart-salon && php artisan schedule:run >> /dev/null 2>&1
+* * * * * cd /var/www/looks-smart-salon && php artisan queue:work --stop-when-empty --max-time=55 >> /dev/null 2>&1
 ```
 
-What this one line actually drives (`routes/console.php`) — no separate cron entry needed per command,
-Laravel's scheduler dispatches all of them from this single minutely tick:
+The `queue:work` line is what actually sends queued notifications/reminders/review-requests —
+`QUEUE_CONNECTION=database` (Decision #49/#50) has no worker daemon of its own, so without this cron
+line, jobs pile up in the `jobs` table and are never processed. `--stop-when-empty` exits once the
+queue is drained instead of idling, and `--max-time=55` is a safety cap so an overlapping minutely tick
+never runs two workers at once.
+
+What the `schedule:run` line actually drives (`routes/console.php`) — no separate cron entry needed per
+command, Laravel's scheduler dispatches all of them from this single minutely tick:
 
 | Command | Schedule |
 |---|---|
@@ -164,42 +160,7 @@ Laravel's scheduler dispatches all of them from this single minutely tick:
 | `bookings:request-reviews` | daily at 10:00 |
 | `posts:publish-scheduled` | every 5 minutes |
 
-## 5. Redis
-
-```ini
-# /etc/redis/redis.conf — the parts that matter for this app
-maxmemory 512mb
-maxmemory-policy noeviction   # NOT allkeys-lru — this app stores booking slot-holds and rate-limit
-                              # counters in Redis; evicting a slot-hold key early would silently let
-                              # a double-booking through. Session/cache data can tolerate eviction,
-                              # slot-holds/rate-limits cannot, and Redis has no per-key policy — pick
-                              # the safer default and size maxmemory generously instead.
-requirepass <a real generated password>
-```
-
-`.env`:
-```
-REDIS_HOST=127.0.0.1
-REDIS_PASSWORD=<same password as above>
-REDIS_PORT=6379
-REDIS_CLIENT=predis
-SESSION_DRIVER=redis
-CACHE_STORE=redis
-QUEUE_CONNECTION=redis
-```
-
-`REDIS_CLIENT=predis` (not `phpredis`) — this app has always run on `predis/predis` (Decision #29,
-no `ext-redis` on the dev machine); a production server with `ext-redis` compiled in could switch to
-`REDIS_CLIENT=phpredis` for a performance gain, but that's an optional follow-up, not a requirement —
-verify with a real load test before switching, don't assume.
-
-Rate limiting (`RateLimiter::for(...)` in `AppServiceProvider`) and booking slot-holds
-(`SlotHoldService`) both use the default cache store — confirm `CACHE_STORE=redis` is actually set
-before going live, since the login/register/password-reset throttles and the double-booking guard's
-UX-level hold both silently degrade to file-based (or whatever `CACHE_STORE` actually is) if this is
-missed.
-
-## 6. Sentry
+## 5. Sentry
 
 `sentry/sentry-laravel` is installed and wired (`bootstrap/app.php`, `config/sentry.php`) but genuinely
 inert until a DSN is set — no code changes needed to activate it, just:
@@ -218,7 +179,7 @@ password/token-shaped request fields (`App\Support\SentryPiiScrubber`) before an
 this sub-step (§10 #21) — a client-side JS crash currently reports nowhere. Add it separately if
 browser-error visibility is wanted; it's an independent package/wiring effort, not a config flip.
 
-## 7. Backups
+## 6. Backups
 
 Already fully built and scheduled (`spatie/laravel-backup`, `config/backup.php`, §5/§9 of the state
 file) — nothing to build here, only to configure for production:
@@ -235,15 +196,15 @@ Local dev defaults to `BACKUP_DISKS=local`, which is fine for a dry run but is n
 MUST set `s3` (or another real off-site disk) before the first scheduled `backup:run` fires, or backups
 will exist only on the same server they're protecting against.
 
-**Known gap, not fixed by this guide (§9's own backup row, and §10 #19)**: encryption has been
+**Known gap, not fixed by this guide (`02-PROJECT-STATE.md` §9's own backup row, and §10 #19)**: encryption has been
 verified real (a real zip only opens with the correct password), but a full **restore** has never been
 rehearsed even once — only backup *creation* has been tested. Before this goes live, actually restore
 one backup into a scratch database and confirm the app boots against it. Skipping this step means the
 backup strategy is unverified exactly where it matters most — the day something actually needs restoring.
 
-## 8. Production `.env` checklist
+## 7. Production `.env` checklist
 
-Beyond the DB/Redis/Sentry/backup values above:
+Beyond the DB/Sentry/backup values above:
 ```
 APP_ENV=production
 APP_DEBUG=false          # DebugModeGuard refuses to boot if this is true in production — a real gate, not just a reminder
@@ -254,7 +215,7 @@ MAIL_MAILER=<a real provider — Postmark/Resend, not log>
 HASH_DRIVER=argon2id                      # already the default; don't change it
 ```
 
-## 9. Deploy steps
+## 8. Deploy steps
 
 ```bash
 git pull origin main
@@ -266,24 +227,24 @@ php artisan config:cache
 php artisan route:cache
 php artisan view:cache
 php artisan event:cache
-supervisorctl restart looks-smart-salon-horizon looks-smart-salon-ssr
+supervisorctl restart looks-smart-salon-ssr
 ```
 
 `--force` on `migrate` is required in production (Laravel refuses destructive-looking migrations
 without it in a non-local environment) — this is Laravel protecting you, not a flag to add blindly;
 always know what a migration does before running this.
 
-Restarting Horizon (not just reloading Nginx/PHP-FPM) is required after any deploy that touched queued
-job code — PHP-FPM picks up new code on the next request automatically, but Horizon's already-running
-worker processes keep the OLD code loaded in memory until restarted.
+No queue worker to restart — the cron-driven `queue:work --stop-when-empty` (§4) picks up new code on
+its very next minutely tick automatically, since it isn't a long-running process that caches old code
+in memory the way a supervised worker would.
 
-## 10. Handover checklist
+## 9. Handover checklist
 
 - [ ] Real credentials rotated in from whoever held them during development (DB password, `BACKUP_ARCHIVE_PASSWORD`, `APP_KEY` regenerated fresh with `php artisan key:generate --force`, Sentry DSN, mail provider key, Google/Twilio/Turnstile keys if those integrations are turned on)
 - [ ] `APP_KEY` is a NEW value for production — never reuse the dev `.env`'s key (it decrypts every encrypted column: PII casts, session cookies, Setting secrets)
-- [ ] A real backup restore has been rehearsed at least once (§7 above) — not just backup creation
-- [ ] `TRUSTED_PROXIES` is set to the real proxy IP, not left blank (session security / rate-limit-by-IP both depend on it — §9's "trusted proxies" row)
+- [ ] A real backup restore has been rehearsed at least once (§6 above) — not just backup creation
+- [ ] `TRUSTED_PROXIES` is set to the real proxy IP, not left blank (session security / rate-limit-by-IP both depend on it — §7's "trusted proxies" row)
 - [ ] DNS + SSL certificate are live and auto-renewing (certbot timer, or Caddy's automatic handling)
-- [ ] Horizon dashboard (`/horizon`) is reachable only to the intended emails — its own gate is in `app/Providers/HorizonServiceProvider.php`; confirm the allowlist reflects real production admins, not dev placeholders
-- [ ] Whoever is on call knows: Sentry is where exceptions surface (§6), Horizon's dashboard is where queue health lives, `storage/logs/laravel.log` is the fallback if Sentry itself is misconfigured
+- [ ] The queue cron line (§4) is actually running — check `jobs`/`failed_jobs` aren't piling up unprocessed; queued notifications/reminders silently never send otherwise
+- [ ] Whoever is on call knows: Sentry is where exceptions surface (§5), `storage/logs/laravel.log` is the fallback if Sentry itself is misconfigured, and `php artisan queue:failed` shows any stuck jobs
 - [ ] Known, tracked gaps at handover time (not secrets, just things the next person shouldn't be surprised by) — see `02-PROJECT-STATE.md` §10 in full, especially: no Playwright/Vitest browser-level E2E exists (#36), no load test of the booking endpoint has been run, backup restore is unrehearsed (above), Dependabot isn't configured (#20), browser-side Sentry isn't wired (#21)

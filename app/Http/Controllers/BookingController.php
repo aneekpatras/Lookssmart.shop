@@ -32,7 +32,7 @@ class BookingController extends Controller
      * slot list is a salon-wide capacity grid), so `staff_id` is now optional here. When omitted, a
      * real staff member is resolved and locked internally — invisibly — via `resolveStaffCandidates()`
      * ∘ `SlotHoldService::hold()`, trying each qualifying candidate in turn since a candidate found
-     * free a moment ago can still lose the race for its own Redis lock to a different concurrent
+     * free a moment ago can still lose the race for its own database-backed lock to a different concurrent
      * request. `staff_id` is still HONOURED when a caller does supply one (e.g. an internal/admin flow
      * choosing a specific staff member on purpose), unchanged from the pre-refactor behavior.
      *
@@ -224,7 +224,7 @@ class BookingController extends Controller
                 );
 
                 // The real DB row now permanently accounts for this seat in every future getSlots()
-                // count — the ephemeral Redis claim has done its job of blocking concurrent checkouts
+                // count — the ephemeral database-backed claim has done its job of blocking concurrent checkouts
                 // during this request and can be released immediately rather than waiting out its TTL.
                 $slotHoldService->releaseCapacitySeat($startsAt, $capacitySeat);
 

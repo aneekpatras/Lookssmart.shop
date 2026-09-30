@@ -96,7 +96,7 @@ class HandleInertiaRequests extends Middleware
             // footer hardcoded its own hours string, which could (and did) disagree with the
             // `business_hours` table the Contact page reads.
             //
-            // Every `Setting::get()` here is Redis-cached for 5 minutes and the hours summary has its
+            // Every `Setting::get()` here is database-cached for 5 minutes and the hours summary has its
             // own cache entry, so this costs no per-request queries in the steady state. Admin pages
             // receive it too and simply ignore it — cheaper than branching on the request path.
             // Deliberately named `site`, NOT `business`: Inertia merges page props over shared props

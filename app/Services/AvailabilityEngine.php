@@ -128,7 +128,7 @@ class AvailabilityEngine
                 'starts_at' => $slotStartUtc->toIso8601String(),
                 'ends_at' => $slotEndUtc->toIso8601String(),
                 'is_available' => $bookedCount < $maxPerSlot,
-                // Real, committed DB bookings only — deliberately excludes in-flight Redis capacity
+                // Real, committed DB bookings only — deliberately excludes in-flight database-backed capacity
                 // holds (`SlotHoldService::holdCapacitySeat()`), which `BookingController` checks
                 // separately at hold()/store() time. `max_bookings_per_slot - booked_count` is exactly
                 // the atomic-claim budget those two callers pass in.
@@ -143,8 +143,8 @@ class AvailabilityEngine
      * Internal only — never exposed via the public slot list. Used once a customer has picked a
      * capacity slot, to find every currently-qualifying, genuinely-free staff member to actually
      * perform it (real working hours ∩ business hours, no time-off/booking conflict, not already
-     * Redis-held). Ordered by id purely for determinism; the caller tries candidates in turn since a
-     * candidate can lose a race for its own Redis hold between here and the atomic lock attempt.
+     * database-held). Ordered by id purely for determinism; the caller tries candidates in turn since a
+     * candidate can lose a race for its own database-backed hold between here and the atomic lock attempt.
      *
      * @param int[] $serviceIds
      * @return Collection<int, int> staff ids

@@ -18,7 +18,7 @@ use Illuminate\Validation\ValidationException;
 
 /**
  * Brief §4 / Phase 7 item 7: "Reschedule ... flows with policy windows, reason capture, and slot
- * release." Reuses the exact same three-layer double-booking guard as `CreateBookingAction` (Redis
+ * release." Reuses the exact same three-layer double-booking guard as `CreateBookingAction` (database-backed
  * hold → transaction + `lockForUpdate` → status-aware unique index) for the NEW slot — a reschedule
  * is really "release the old slot, book the new one" and must be exactly as safe as a fresh booking.
  */

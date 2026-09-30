@@ -39,7 +39,7 @@ class Setting extends Model
     }
 
     /**
-     * Cached (5 min — real Redis-backed since Phase 6/Decision #29) read for the availability engine
+     * Cached (5 min — database-backed since the 2026-09-28 Redis-removal migration, Decision #49) read for the availability engine
      * and other hot paths that would otherwise hit `settings` on every request. Invalidated
      * immediately on save/delete via the model events above, so a stale value never outlives an edit.
      */

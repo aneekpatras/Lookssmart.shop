@@ -29,7 +29,7 @@ use Illuminate\Validation\ValidationException;
 
 /**
  * Brief §4 / Phase 7 item 3: DB transaction + `lockForUpdate` + unique-index catch, on top of the
- * Redis atomic hold from sub-step 1 — three independent layers, since any one of them being bypassed
+ * database-backed atomic hold from sub-step 1 — three independent layers, since any one of them being bypassed
  * (a stale hold, a race inside the transaction, a direct DB write from elsewhere) must still not
  * result in a double booking.
  */
@@ -89,7 +89,7 @@ class CreateBookingAction
                 $customerId, $guestName, $guestEmail, $guestPhone, $notes, $services,
             ) {
                 // Serializes concurrent creates for this staff member even if two requests somehow
-                // both got past the Redis hold (e.g. a hold that just expired) — belt-and-suspenders
+                // both got past the database-backed hold (e.g. a hold that just expired) — belt-and-suspenders
                 // on top of the atomic lock, not a replacement for it.
                 Staff::whereKey($staffId)->lockForUpdate()->first();
 
@@ -172,7 +172,7 @@ class CreateBookingAction
      * a bad SMTP credential) throws synchronously right here rather than on a queue worker's own
      * thread, so without this it would turn a successful booking into a 500 for the customer. Under
      * a real async queue driver these still can't throw here at all — this is defense against the
-     * sync case specifically, not a behavior change for the production redis+Horizon setup.
+     * sync case specifically, not a behavior change for the production `database` queue-worker setup.
      */
     private function sendNotifications(Booking $booking, ?string $guestPhone): void
     {

@@ -103,7 +103,7 @@ class SecurityHeaders
      */
     private static function buildCsp(string $nonce): string
     {
-        // A response header must never fail to generate. Setting::get() is Redis-cached (5 min), so
+        // A response header must never fail to generate. Setting::get() is database-cached (5 min), so
         // this is not a fresh query on every request in practice — but if the database is ever
         // briefly unreachable, the CSP header (needed on literally every response, not just
         // analytics-related ones) must still be produced; fail safe to the strictest policy rather
